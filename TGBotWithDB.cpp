@@ -279,7 +279,7 @@ int main() {
 
     std::vector<std::string> bot_commands = { "start", "test", "kick", "ban", "mute", "mutemedia", "unmute", "kick", "help" }; // список команд бота
 
-    TgBot::Bot bot("6516537239:AAFrdbhYujv8rQc-7Mu9Cpo8ak0yhyui_hU");
+    TgBot::Bot bot("");
 
     bot.getEvents().onCommand("start", [&bot](TgBot::Message::Ptr message) {
         if (isMessageTooOld(message, 60)) return;
