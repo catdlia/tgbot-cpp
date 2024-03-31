@@ -25,26 +25,20 @@ bool isMessageTooOld(TgBot::Message::Ptr message, int thresholdInSeconds) {
     return (now - message->date > thresholdInSeconds);
 }
 
-std::string boardToString(const std::vector<std::vector<std::string>>& board) {
-    std::string boardStr;
-    for (const auto& row : board) {
-        for (const auto& cell : row) {
-            boardStr += cell + " ";
-        }
-        boardStr += "\n";
-    }
-    return boardStr;
-}
-
 bool checkWin(const std::vector<std::vector<std::string>>& board) {
-    for (size_t i = 0; i < 3; i++) {
+
+    for (int i = 0; i < 3; i++) {
         if (board[i][0] != " " && board[i][0] == board[i][1] && board[i][1] == board[i][2]) {
             return true;
         }
+    }
+
+    for (int i = 0; i < 3; i++) {
         if (board[0][i] != " " && board[0][i] == board[1][i] && board[1][i] == board[2][i]) {
             return true;
         }
     }
+
     if (board[0][0] != " " && board[0][0] == board[1][1] && board[1][1] == board[2][2]) {
         return true;
     }
@@ -52,6 +46,17 @@ bool checkWin(const std::vector<std::vector<std::string>>& board) {
         return true;
     }
     return false;
+}
+
+bool isBoardFull(const std::vector<std::vector<std::string>>& board) {
+    for (const auto& row : board) {
+        for (const auto& cell : row) {
+            if (cell == " ") {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 struct GameSession {
@@ -69,11 +74,39 @@ struct GameSession {
     std::int32_t messageId = 0;
 };
 
+void updateGameMessage(TgBot::Bot& bot, GameSession& session) {
+    std::string messageText = u8"Гра у хрестики-нолики розпочалася!\n";
+    messageText += u8"Гравець 1: " + session.player1Name + u8" (" + session.player1Symbol + ")\n";
+    messageText += u8"Гравець 2: " + session.player2Name + u8" (" + session.player2Symbol + ")\n";
+    if (checkWin(session.board))
+        messageText += u8"Переможець: " + (session.currentPlayerId == session.player1Id ? session.player2Name : session.player1Name) + "\n";
+
+    else if (isBoardFull(session.board)) {
+        messageText += u8"Нічия!\n";
+    }
+
+    else {
+    messageText += u8"Зараз хід гравця: " + (session.currentPlayerId == session.player1Id ? session.player1Name : session.player2Name) + "\n";
+}
+
+    TgBot::InlineKeyboardMarkup::Ptr keyboard(new TgBot::InlineKeyboardMarkup());
+    for (int i = 0; i < 3; i++) {
+        std::vector<TgBot::InlineKeyboardButton::Ptr> rowButtons;
+        for (int j = 0; j < 3; j++) {
+            TgBot::InlineKeyboardButton::Ptr button(new TgBot::InlineKeyboardButton());
+            button->text = session.board[i][j] == " " ? " " : session.board[i][j];
+            button->callbackData = "gameId:" + std::to_string(session.gameId) + ":cell:" + std::to_string(i) + std::to_string(j);
+            rowButtons.push_back(button);
+        }
+        keyboard->inlineKeyboard.push_back(rowButtons);
+    }
+
+    bot.getApi().editMessageText(messageText, session.chatId, session.messageId, "", "Markdown", false, keyboard);
+}
+
 std::map<int, GameSession> gameSessions;
 
 void handleGameStart(TgBot::Bot& bot, TgBot::Message::Ptr message) {
-    if (isMessageTooOld(message, 60)) return;
-
     int64_t chatId = message->chat->id;
     int64_t userId = message->from->id;
     std::string userName = message->from->username;
@@ -85,6 +118,7 @@ void handleGameStart(TgBot::Bot& bot, TgBot::Message::Ptr message) {
     session.chatId = chatId;
     session.player1Id = userId;
     session.player1Name = userName;
+
     session.board = std::vector<std::vector<std::string>>(3, std::vector<std::string>(3, " "));
 
     TgBot::InlineKeyboardMarkup::Ptr keyboard(new TgBot::InlineKeyboardMarkup);
@@ -105,170 +139,134 @@ void handleCallbackQuery(TgBot::Bot& bot, TgBot::CallbackQuery::Ptr query, SQLit
     std::string userName = query->from->username;
     int64_t messageId = query->message->messageId;
 
-    std::string prefix = "gameId:";
-    if (query->data.rfind(prefix, 0) == 0) {
-        std::string gameIdStr = query->data.substr(prefix.size());
-        try {
-            int gameId = std::stoi(gameIdStr);
-
-            if (gameSessions.find(gameId) != gameSessions.end()) {
-                GameSession& session = gameSessions[gameId];
-
-                session.player2Id = userId;
-                session.player2Name = userName;
-
-                if (std::rand() % 2 == 0) {
-                    session.player1Symbol = "X";
-                    session.player2Symbol = "O";
-                }
-                else {
-                    session.player1Symbol = "O";
-                    session.player2Symbol = "X";
-                }
-
-                if (std::rand() % 2 == 0) {
-                    session.currentPlayerId = session.player1Id;
-                }
-                else {
-                    session.currentPlayerId = session.player2Id;
-                }
-
-                TgBot::InlineKeyboardMarkup::Ptr keyboard(new TgBot::InlineKeyboardMarkup);
-                for (int i = 0; i < 3; i++) {
-                    std::vector<TgBot::InlineKeyboardButton::Ptr> row;
-                    for (int j = 0; j < 3; j++) {
-                        TgBot::InlineKeyboardButton::Ptr button(new TgBot::InlineKeyboardButton);
-                        button->text = session.board[i][j];
-                        button->callbackData = "gameId:" + std::to_string(gameId) + ":cell:" + std::to_string(i) + std::to_string(j);                        row.push_back(button);
-                    }
-                    keyboard->inlineKeyboard.push_back(row);
-                }
-
-                std::string boardStr = boardToString(session.board);
-                bot.getApi().editMessageText(u8"Гра розпочалася! " + std::string(session.currentPlayerId == session.player1Id ? session.player1Name : session.player2Name) + u8" ходить.\n" + boardStr, session.chatId, session.messageId, "", "Markdown", false, keyboard);
-            }
-        }
-        catch (std::invalid_argument& e) {
-            bot.getApi().sendMessage(chatId, u8"Неправильний формат gameId");
-        }
-        catch (std::out_of_range& e) {
-            bot.getApi().sendMessage(chatId, u8"gameId виходить за допустимі межі");
-        }
-    }
-
+    std::string gameIdPrefix = "gameId:";
     std::string cellPrefix = ":cell:";
-    if (query->data.rfind(prefix, 0) == 0) {
-        std::string gameIdStr = query->data.substr(prefix.size());
-        try {
-            int gameId = std::stoi(gameIdStr);
+    int gameId;
 
-            if (gameSessions.find(gameId) != gameSessions.end()) {
-                GameSession& session = gameSessions[gameId];
+    try {
+        gameId = std::stoi(query->data.substr(gameIdPrefix.size(), query->data.find(cellPrefix) - gameIdPrefix.size()));
+    }
+    catch (const std::invalid_argument& e) {
+        bot.getApi().sendMessage(chatId, u8"Неправильний формат ID гри.");
+        return;
+    }
+    catch (const std::out_of_range& e) {
+        bot.getApi().sendMessage(chatId, u8"ID гри виходить за межі допустимого діапазону.");
+        return;
+    }
 
+    if (query->data.rfind(gameIdPrefix, 0) == 0) {
+        std::string gameIdStr = query->data.substr(gameIdPrefix.size());
+
+        if (gameSessions.find(gameId) != gameSessions.end()) {
+            GameSession& session = gameSessions[gameId];
+
+            if (session.player2Id == 0) {
                 session.player2Id = userId;
                 session.player2Name = userName;
 
-                if (std::rand() % 2 == 0) {
-                    session.player1Symbol = "X";
-                    session.player2Symbol = "O";
-                }
-                else {
-                    session.player1Symbol = "O";
-                    session.player2Symbol = "X";
-                }
+                std::srand(std::time(nullptr));
+                session.player1Symbol = (std::rand() % 2) == 0 ? "X" : "O";
+                session.player2Symbol = session.player1Symbol == "X" ? "O" : "X";
 
-                if (std::rand() % 2 == 0) {
-                    session.currentPlayerId = session.player1Id;
-                }
-                else {
-                    session.currentPlayerId = session.player2Id;
-                }
+                session.currentPlayerId = (std::rand() % 2) == 0 ? session.player1Id : session.player2Id;
 
-                TgBot::InlineKeyboardMarkup::Ptr keyboard(new TgBot::InlineKeyboardMarkup);
-                for (int i = 0; i < 3; i++) {
-                    std::vector<TgBot::InlineKeyboardButton::Ptr> row;
-                    for (int j = 0; j < 3; j++) {
-                        TgBot::InlineKeyboardButton::Ptr button(new TgBot::InlineKeyboardButton);
-                        button->text = session.board[i][j];
-                        button->callbackData = "gameId:" + std::to_string(gameId) + ":cell:" + std::to_string(i) + std::to_string(j);
-                        row.push_back(button);
-                    }
-                    keyboard->inlineKeyboard.push_back(row);
-                }
-
-                std::string boardStr = boardToString(session.board);
-                bot.getApi().editMessageText(u8"Гра розпочалася! " + std::string(session.currentPlayerId == session.player1Id ? session.player1Name : session.player2Name) + u8" ходить.\n" + boardStr, session.chatId, session.messageId, "", "Markdown", false, keyboard);
+                updateGameMessage(bot, session);
             }
         }
-        catch (std::invalid_argument& e) {
-            bot.getApi().sendMessage(chatId, u8"Неправильний формат gameId");
-        }
-        catch (std::out_of_range& e) {
-            bot.getApi().sendMessage(chatId, u8"gameId виходить за допустимі межі");
+        else {
+            bot.getApi().answerCallbackQuery(query->id, u8"Гра з таким ID не знайдена.", false);
         }
     }
 
-    if (query->data.rfind(prefix, 0) == 0) {
-        size_t cellPos = query->data.find(cellPrefix);
-        if (cellPos != std::string::npos) {
-            std::string gameIdStr = query->data.substr(prefix.size(), cellPos - prefix.size());
-            try {
-                int gameId = std::stoi(gameIdStr);
+    if (query->data.find(cellPrefix) != std::string::npos) {
+        std::string cellData = query->data.substr(query->data.find(cellPrefix) + cellPrefix.size());
+        int row = cellData[0] - u8'0';
+        int col = cellData[1] - u8'0';
+        gameId = std::stoi(query->data.substr(gameIdPrefix.size(), query->data.find(cellPrefix) - gameIdPrefix.size()));
 
-                if (gameSessions.find(gameId) != gameSessions.end()) {
-                    GameSession& session = gameSessions[gameId];
+        if (gameSessions.find(gameId) != gameSessions.end()) {
+            GameSession& session = gameSessions[gameId];
 
-                    std::string cellData = query->data.substr(cellPos + cellPrefix.size());
-                    if (cellData.size() == 2 && cellData[0] >= '0' && cellData[0] <= '2' && cellData[1] >= '0' && cellData[1] <= '2') {
-                        int row = cellData[0] - '0';
-                        int col = cellData[1] - '0';
+            if (userId != session.currentPlayerId) {
+                bot.getApi().answerCallbackQuery(query->id, u8"Не лізь! Воно тебе зіжре!", false);
+                return;
+            }
 
-                        if (session.currentPlayerId == userId && session.board[row][col] == " ") {
+            if (session.board[row][col] == " ") {
+                session.board[row][col] = session.currentPlayerId == session.player1Id ? session.player1Symbol : session.player2Symbol;
+                session.currentPlayerId = session.currentPlayerId == session.player1Id ? session.player2Id : session.player1Id;
 
-                            if (session.board[row][col] == " ") {
-                                session.board[row][col] = session.currentPlayerId == session.player1Id ? session.player1Symbol : session.player2Symbol;
+                updateGameMessage(bot, session);
 
-                                std::string boardStr = boardToString(session.board);
-                                bot.getApi().editMessageText(u8"Гра розпочалася! " + std::string(session.currentPlayerId == session.player1Id ? session.player1Name : session.player2Name) + u8" ходить.\n" + boardStr, session.chatId, session.messageId);
+                if (checkWin(session.board)) {
+                    try {
+                        db.exec("BEGIN TRANSACTION");
 
-                                if (checkWin(session.board)) {
-                                    SQLite::Statement query(db, "UPDATE player_ids SET wins = wins + 1 WHERE id = ?");
-                                    query.bind(1, session.currentPlayerId);
-                                    query.exec();
-                                    session.winnerName = session.currentPlayerId == session.player1Id ? "Player 1" : "Player 2";
+                        int64_t WinnerId = session.currentPlayerId == session.player1Id ? session.player2Id : session.player1Id;
 
-                                    gameSessions.erase(gameId);
-                                    return;
-                                }
-
-                                session.currentPlayerId = session.currentPlayerId == session.player1Id ? session.player2Id : session.player1Id;
-                            }
+                        SQLite::Statement selectQuery(db, "SELECT wins, losses FROM player_ids WHERE id = ?");
+                        selectQuery.bind(1, WinnerId);
+                        int wins = 0, losses = 0;
+                        if (selectQuery.executeStep()) {
+                            wins = selectQuery.getColumn(0);
+                            losses = selectQuery.getColumn(1);
                         }
 
-                        if (checkWin(session.board)) {
-                            SQLite::Statement dbquery(db, "UPDATE player_ids SET wins = wins + 1 WHERE id = ?");
-                            dbquery.bind(1, session.currentPlayerId);
-                            dbquery.exec();
+                        SQLite::Statement insertOrReplaceQuery(db, "INSERT OR REPLACE INTO player_ids (id, wins, losses) VALUES (?, ?, ?)");
+                        insertOrReplaceQuery.bind(1, WinnerId);
+                        insertOrReplaceQuery.bind(2, wins + 1);
+                        insertOrReplaceQuery.bind(3, losses);
+                        insertOrReplaceQuery.exec();
 
-                            session.winnerName = session.currentPlayerId == session.player1Id ? "Player 1" : "Player 2";
-
-                            std::string boardStr = boardToString(session.board);
-                            bot.getApi().sendMessage(chatId, u8"Переможець: " + session.winnerName + u8"\nФінальна дошка:\n" + boardStr);
-
-                            gameSessions.erase(gameId);
-                        }
+                        db.exec("COMMIT");
                     }
+                    catch (const SQLite::Exception& e) {
+                        db.exec("ROLLBACK");
+                        bot.getApi().sendMessage(session.chatId, u8"An error occurred while updating the database: " + std::string(e.what()));
+                    }
+
+                    try {
+                        db.exec("BEGIN TRANSACTION");
+
+                        SQLite::Statement selectQuery(db, "SELECT wins, losses FROM player_ids WHERE id = ?");
+                        selectQuery.bind(1, session.currentPlayerId);
+                        int wins = 0, losses = 0;
+                        if (selectQuery.executeStep()) {
+                            wins = selectQuery.getColumn(0);
+                            losses = selectQuery.getColumn(1);
+                        }
+
+                        SQLite::Statement insertOrReplaceQuery(db, "INSERT OR REPLACE INTO player_ids (id, wins, losses) VALUES (?, ?, ?)");
+                        insertOrReplaceQuery.bind(1, session.currentPlayerId);
+                        insertOrReplaceQuery.bind(2, wins);
+                        insertOrReplaceQuery.bind(3, losses + 1);
+                        insertOrReplaceQuery.exec();
+
+                        db.exec("COMMIT");
+                    }
+                    catch (const SQLite::Exception& e) {
+                        db.exec("ROLLBACK");
+                        bot.getApi().sendMessage(session.chatId, u8"An error occurred while updating the database: " + std::string(e.what()));
+                    }
+
+                    gameSessions.erase(gameId);
+                }
+
+                else if (isBoardFull(session.board)) {
+                    gameSessions.erase(gameId);
                 }
             }
-            catch (std::invalid_argument& e) {
-                bot.getApi().sendMessage(chatId, u8"Неправильний формат gameId");
+            else {
+                bot.getApi().answerCallbackQuery(query->id, u8"Ця клітинка вже зайнята!", false);
             }
-            catch (std::out_of_range& e) {
-                bot.getApi().sendMessage(chatId, u8"gameId виходить за допустимі межі");
-            }
+        }
+        else {
+            bot.getApi().answerCallbackQuery(query->id, u8"Гра з таким ID не знайдена.", false);
         }
     }
 }
+
 
 int main() {
     SQLite::Database db("mydb.sqlite", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
@@ -277,9 +275,11 @@ int main() {
 
     db.exec("CREATE TABLE IF NOT EXISTS player_ids (id INTEGER PRIMARY KEY, wins INTEGER, losses INTEGER, settings TEXT)");
 
-    std::vector<std::string> bot_commands = { "start", "test", "kick", "ban", "mute", "mutemedia", "unmute", "kick", "help" }; // список команд бота
+    db.exec("PRAGMA busy_timeout = 100");
 
-    TgBot::Bot bot("");
+    std::vector<std::string> bot_commands = { "start", "test", "kick", "ban", "mute", "mutemedia", "unmute", "help", "startgame", "stats"}; // список команд бота
+
+    TgBot::Bot bot("6516537239:AAFrdbhYujv8rQc-7Mu9Cpo8ak0yhyui_hU");
 
     bot.getEvents().onCommand("start", [&bot](TgBot::Message::Ptr message) {
         if (isMessageTooOld(message, 60)) return;
@@ -290,7 +290,7 @@ int main() {
     bot.getEvents().onCommand("help", [&bot](TgBot::Message::Ptr message) {
         if (isMessageTooOld(message, 60)) return;
 
-        bot.getApi().sendMessage(message->chat->id, u8"Список команд бота: \n\n/ban - блокує користувача \n/mute - забороняє писати будь-які повідомлення\n/unmute - знімає всі обмеження з користувача\n/kick - вигоняє людину з чату\n/mutemedia - забороняє надсилати медіа.");
+        bot.getApi().sendMessage(message->chat->id, u8"Список команд бота: \n\n/ban - блокує користувача.\n/mute - забороняє писати будь-які повідомлення.\n/unmute - знімає всі обмеження з користувача.\n/kick - виганяє людину з чату.\n/mutemedia - забороняє надсилати медіа.\n/startgame - починає гру в хрестики-нолики\n/stats - показує статистику ігор.");
         });
 
     bot.getEvents().onCommand("ban", [&bot](TgBot::Message::Ptr message) {
@@ -512,6 +512,8 @@ int main() {
         });
 
     bot.getEvents().onCommand("startgame", [&bot](TgBot::Message::Ptr message) {
+        if (isMessageTooOld(message, 60)) return;
+
         handleGameStart(bot, message);
         });
 
@@ -520,6 +522,49 @@ int main() {
         });
 
     bot.getApi().deleteWebhook();
+
+    bot.getEvents().onCommand("stats", [&bot, &db](TgBot::Message::Ptr message) {
+        if (isMessageTooOld(message, 60)) return;
+
+        int64_t userId = message->from->id;
+        std::string userName = message->from->username;
+
+        try {
+            SQLite::Statement query(db, "SELECT wins, losses FROM player_ids WHERE id = ?");
+            query.bind(1, userId);
+            if (query.executeStep()) {
+                int wins = query.getColumn(0);
+                int losses = query.getColumn(1);
+                int totalGames = wins + losses;
+
+                std::stringstream statsMessage;
+                statsMessage << userName << u8", ваша статистика:\n\n";
+                statsMessage << u8"Перемоги: " << wins << "\n";
+                statsMessage << u8"Поразки: " << losses << "\n";
+
+                if (wins == 0) {
+                    statsMessage << u8"Співвідношення перемог до поразок: Ви жодного разу не перемагали\n";
+                }
+                else if (losses == 0) {
+                    statsMessage << u8"Співвідношення перемог до поразок: Ви жодного разу не програвали\n";
+                }
+                else {
+                    double winLossRatio = static_cast<double>(wins) / static_cast<double>(losses);
+                    statsMessage << u8"Співвідношення перемог до поразок: " << std::fixed << std::setprecision(2) << winLossRatio << "\n";
+                }
+
+                statsMessage << u8"Загальна кількість ігор: " << totalGames;
+
+                bot.getApi().sendMessage(message->chat->id, statsMessage.str());
+            }
+            else {
+                bot.getApi().sendMessage(message->chat->id, userName + u8", у вас ще немає статистики.");
+            }
+        }
+        catch (const SQLite::Exception& e) {
+            bot.getApi().sendMessage(message->chat->id, u8"Сталася помилка при отриманні статистики: " + std::string(e.what()));
+        }
+        });
 
     try {
         printf("Bot username: %s\n", bot.getApi().getMe()->username.c_str());

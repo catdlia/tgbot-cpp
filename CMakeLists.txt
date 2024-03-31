@@ -32,6 +32,6 @@ include_directories(${SQLiteCpp_INCLUDE_DIRS})
 
 set(SOURCES TGBotWithDB.cpp TGBotWithDB.h)
 
-add_executable(TGBotWithDB C:/Users/Illya/source/repos/TGBotWithDB/TGBotWithDB.cpp)
+add_executable(TGBotWithDB C:/Users/Illya/source/repos/TGBotWithDB/TGBotWithDB.cpp  )
 
 target_link_libraries(TGBotWithDB PRIVATE TgBot SQLiteCpp ${SQLiteCpp_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${OPENSSL_LIBRARIES} ${Boost_LIBRARIES} ${CURL_LIBRARIES})

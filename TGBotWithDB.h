@@ -1,4 +1,6 @@
-﻿#include <iostream>
+﻿//вибачте, що не розбив на більше файлів, у мене не вистачає часу й сил вже на це
+
+#include <iostream>
 #include <stdio.h>
 #include <vector>
 #include <sstream>
@@ -11,6 +13,7 @@
 #include <codecvt>
 #include <thread>
 #include <chrono>
+#include <fstream>
 
 #include <tgbot/tgbot.h>
 #include <SQLiteCpp/SQLiteCpp.h>
